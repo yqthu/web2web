@@ -24,6 +24,7 @@ class Crawler:
         # chrome_options.add_argument("--headless")
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
+        chrome_options.add_argument("--allow-file-access-from-files")
         chrome_options.add_experimental_option("mobileEmulation", {
             "deviceName": "Nexus 5",
             # "deviceMetrics": {"width": 1080, "height": 1920},
@@ -96,9 +97,22 @@ class Crawler:
                 arguments[0].appendChild(meta);
             """, head)
 
+    def onload(self):
+        self._enable_scroll()
+        with open('seg/seg.css') as f:
+            cmd = f"""var seg_css = document.createElement('style');
+            seg_css.innerHTML = `{f.read()}`
+            document.head.appendChild(seg_css);
+        """
+        with open('seg/seg.js') as f:
+            self.driver.execute_script(f.read())
+            self.driver.execute_script(cmd)
+        self.scroll('DOWN')
+        self.scroll('UP')
+
     def get_url(self, url):
         ret = self.driver.get(url)
-        self._enable_pinch_zoom()
+        self.onload()
         self.zoom(0, 0, 0.1)
         # NOTE: always start from the upper left corner
         for _ in range(3):
@@ -118,13 +132,13 @@ class Crawler:
         ret = self.driver.send_cmd(
             'Input.synthesizeTapGesture', {'x': x, 'y': y}
         )
-        self._enable_pinch_zoom()
+        self.onload()
         return ret
 
     def click_element(self, el):
         try:
             ret = ActionChains(self.driver).move_to_element(el).click().perform()
-            self._enable_pinch_zoom()
+            self.onload()
             return ret
         except selenium.common.exceptions.JavascriptException:
             pass

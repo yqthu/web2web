@@ -1,6 +1,5 @@
 const numSteps = 20.0;
 
-let boxElement;
 let prevRatio = 0.0;
 let increasingColor = "rgba(40, 40, 190, ratio)";
 let decreasingColor = "rgba(190, 40, 40, ratio)";
@@ -21,17 +20,17 @@ function $xx(xpath)
 }
 
 // FIXME: MutationObserver?
-window.addEventListener("load", (event) => {
-  boxElement = document.querySelector("#box");
-  initCanvas();
-  createObserver();
-}, false);
+// window.addEventListener("load", (event) => {
+initCanvas();
+createObserver();
+// }, false);
 
 function initCanvas() {
   let canvasNode = document.createElement("canvas");
   canvasNode.setAttribute('height', Math.floor(window.innerHeight / canvasScale));
   canvasNode.setAttribute('width', Math.floor(window.innerWidth / canvasScale));
   canvasNode.setAttribute('class', 'canvasContainer')
+  canvasNode.setAttribute('style', 'z-index: 999;')
   document.body.appendChild(canvasNode);
   return canvasNode;
 }
@@ -46,17 +45,18 @@ function createObserver() {
   };
 
   observer = new IntersectionObserver(handleIntersect, options);
-  $xx("//*[string-length(text()) > 0]").forEach(
-    // $xx('//*[@id="box"]').forEach(
-      (element, index) => {
-        for (const node of element.childNodes) {
-          if (node.nodeType == 3 && node.nodeValue.trim().length > 0) {
-            element.tracker_id = index;
-            observer.observe(element);
-            textElements[element.tracker_id] = element;
+  ["//*[string-length(text()) > 0]"].forEach((path) =>
+    $xx(path).forEach(
+        (element, index) => {
+          for (const node of element.childNodes) {
+            if (node.nodeType == 3 && node.nodeValue.trim().length > 0) {
+              element.tracker_id = index;
+              observer.observe(element);
+              textElements[element.tracker_id] = element;
+            }
           }
-        }
-    }
+      }
+    )
   )
 }
 
@@ -68,13 +68,13 @@ window.addEventListener("scroll", (event) => {
   ctx.fillStyle = "red";
   ctx.beginPath();
   for (const [key, el] of Object.entries(textElements)) {
-    if (el.isVisible) {
+    if (el.__tracker_isVisible) {
       let rect = el.getBoundingClientRect();
       ctx.fillRect(
         Math.floor(rect.x / canvasScale),
         Math.floor(rect.y / canvasScale),
-        Math.floor(el.intersectWidth / canvasScale),
-        Math.floor(el.intersectHeight / canvasScale)
+        Math.floor(el.__tracker_intersectWidth / canvasScale),
+        Math.floor(el.__tracker_intersectHeight / canvasScale)
       );
     }
   }
@@ -86,19 +86,13 @@ function handleIntersect(entries, observer) {
     entries.forEach((entry) => {
       if (entry.isIntersecting) {
         let te = textElements[entry.target.tracker_id];
-        te.isVisible = true;
-        te.intersectWidth = entry.intersectionRect.width;
-        te.intersectHeight = entry.intersectionRect.height;
+        te.__tracker_isVisible = true;
+        te.__tracker_intersectWidth = entry.intersectionRect.width;
+        te.__tracker_intersectHeight = entry.intersectionRect.height;
         canvasRects[entry.target.tracker_id] = entry.intersectionRect;
       } else {
-        textElements[entry.target.tracker_id].isVisible = false;
+        textElements[entry.target.tracker_id].__tracker_isVisible = false;
       }
-      if (entry.intersectionRatio > prevRatio) {
-        entry.target.style.backgroundColor = increasingColor.replace("ratio", entry.intersectionRatio);
-      } else {
-        entry.target.style.backgroundColor = decreasingColor.replace("ratio", entry.intersectionRatio);
-      }
-      prevRatio = entry.intersectionRatio;
     });
   }
 

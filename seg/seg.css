@@ -29,6 +29,6 @@
     position: fixed;
     right: 0px;
     bottom: 0px;
-    z-index: 1;
+    z-index: 999;
     background-color: Black;
 }
