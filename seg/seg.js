@@ -7,6 +7,7 @@ let canvasScale = 3;
 
 let canvasRects = {};
 let textElements = {};
+let intersectionObserver = null;
 
 function $xx(xpath)
 {
@@ -19,11 +20,13 @@ function $xx(xpath)
     return results;
 }
 
-// FIXME: MutationObserver?
-// window.addEventListener("load", (event) => {
-initCanvas();
-createObserver();
-// }, false);
+function createMutationObserver() {
+  let config = { attributes: true, childList: true, subtree: true };
+  var mo = new MutationObserver((mutationsList, observer) => {
+      createIntersectionObserver();
+    });
+  mo.observe(document.body, config);
+}
 
 function initCanvas() {
   let canvasNode = document.createElement("canvas");
@@ -35,23 +38,24 @@ function initCanvas() {
   return canvasNode;
 }
 
-function createObserver() {
-  let observer;
-
+function createIntersectionObserver() {
   let options = {
     root: null,
     rootMargin: "0px",
     threshold: buildThresholdList()
   };
 
-  observer = new IntersectionObserver(handleIntersect, options);
+  if (intersectionObserver) {
+    intersectionObserver.disconnect();
+  }
+  intersectionObserver = new IntersectionObserver(handleIntersect, options);
   ["//*[string-length(text()) > 0]"].forEach((path) =>
     $xx(path).forEach(
         (element, index) => {
           for (const node of element.childNodes) {
             if (node.nodeType == 3 && node.nodeValue.trim().length > 0) {
               element.tracker_id = index;
-              observer.observe(element);
+              intersectionObserver.observe(element);
               textElements[element.tracker_id] = element;
             }
           }
@@ -108,3 +112,6 @@ function buildThresholdList() {
     thresholds.push(0);
     return thresholds;
   }
+
+  initCanvas();
+  createMutationObserver();
