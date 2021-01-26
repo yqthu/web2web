@@ -6,8 +6,11 @@ let decreasingColor = "rgba(190, 40, 40, ratio)";
 let canvasScale = 3;
 
 let canvasRects = {};
-let textElements = {};
-let intersectionObserver = null;
+
+var textElements = {};
+var imgElements = {};
+let textIntersectionObserver = null;
+let imgIntersectionObserver = null;
 
 function $xx(xpath)
 {
@@ -23,8 +26,27 @@ function $xx(xpath)
 function createMutationObserver() {
   let config = { attributes: true, childList: true, subtree: true };
   var mo = new MutationObserver((mutationsList, observer) => {
-      createIntersectionObserver();
+    textIntersectionObserver = createIntersectionObserver(textElements,
+      "//*[string-length(text()) > 0]",
+      textIntersectionObserver,
+    (intersObserver, elementList) => (element, index) => {
+      for (const node of element.childNodes) {
+        if (node.nodeType == 3 && node.nodeValue.trim().length > 0) {
+          element.tracker_id = index;
+          elementList[element.tracker_id] = element;
+          intersObserver.observe(element);
+        }
+      }
     });
+    imgIntersectionObserver = createIntersectionObserver(imgElements,
+      "//img",
+      imgIntersectionObserver,
+      (intersObserver, elementList) => (element, index) => {
+        element.tracker_id = index;
+        elementList[element.tracker_id] = element;
+        intersObserver.observe(element);
+      });
+  });
   mo.observe(document.body, config);
 }
 
@@ -38,67 +60,64 @@ function initCanvas() {
   return canvasNode;
 }
 
-function createIntersectionObserver() {
+function createIntersectionObserver(elementList, xpath, oldObserver, needNode) {
   let options = {
     root: null,
     rootMargin: "0px",
-    threshold: buildThresholdList()
+    threshold: buildThresholdList(),
+    trackVisibility: true,
+    delay: 200
   };
 
-  if (intersectionObserver) {
-    intersectionObserver.disconnect();
+  if (oldObserver) {
+    oldObserver.disconnect();
   }
-  intersectionObserver = new IntersectionObserver(handleIntersect, options);
-  ["//*[string-length(text()) > 0]"].forEach((path) =>
-    $xx(path).forEach(
-        (element, index) => {
-          for (const node of element.childNodes) {
-            if (node.nodeType == 3 && node.nodeValue.trim().length > 0) {
-              element.tracker_id = index;
-              intersectionObserver.observe(element);
-              textElements[element.tracker_id] = element;
-            }
-          }
-      }
-    )
-  )
+  oldObserver = new IntersectionObserver(handleIntersect(elementList), options);
+  $xx(xpath).forEach(needNode(oldObserver, elementList));
+  return oldObserver;
 }
 
-// FIXME: MutationObserver?
-window.addEventListener("scroll", (event) => {
-  let canvasNode = $xx('//canvas')[0];
-  let ctx = canvasNode.getContext("2d");
-  ctx.clearRect(0,0,canvasNode.width,canvasNode.height);
-  ctx.fillStyle = "red";
-  ctx.beginPath();
-  for (const [key, el] of Object.entries(textElements)) {
-    if (el.__tracker_isVisible) {
-      let rect = el.getBoundingClientRect();
-      ctx.fillRect(
-        Math.floor(rect.x / canvasScale),
-        Math.floor(rect.y / canvasScale),
-        Math.floor(el.__tracker_intersectWidth / canvasScale),
-        Math.floor(el.__tracker_intersectHeight / canvasScale)
-      );
-    }
-  }
-  ctx.stroke();
-}, false);
+function addScrollListener(elementLists) {
+  window.addEventListener("scroll", (event) => {
+    let canvasNode = $xx('//canvas')[0];
+    let ctx = canvasNode.getContext("2d");
+    ctx.clearRect(0,0,canvasNode.width,canvasNode.height);
+    elementLists.forEach((elementPair) => {
+      let elementList = elementPair[0];
+      let color = elementPair[1];
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      for (const [key, el] of Object.entries(elementList)) {
+        if (el.__tracker_isVisible) {
+          let rect = el.getBoundingClientRect();
+          ctx.fillRect(
+            Math.floor(rect.x / canvasScale),
+            Math.floor(rect.y / canvasScale),
+            Math.floor(el.__tracker_intersectWidth / canvasScale),
+            Math.floor(el.__tracker_intersectHeight / canvasScale)
+          );
+        }
+      }
+    });
+    ctx.stroke();
+  }, false);
+}
 
-
-function handleIntersect(entries, observer) {
+function handleIntersect(elementList){
+  return (entries, observer) => {
     entries.forEach((entry) => {
       if (entry.isIntersecting) {
-        let te = textElements[entry.target.tracker_id];
+        let te = elementList[entry.target.tracker_id];
         te.__tracker_isVisible = true;
         te.__tracker_intersectWidth = entry.intersectionRect.width;
         te.__tracker_intersectHeight = entry.intersectionRect.height;
         canvasRects[entry.target.tracker_id] = entry.intersectionRect;
       } else {
-        textElements[entry.target.tracker_id].__tracker_isVisible = false;
+        elementList[entry.target.tracker_id].__tracker_isVisible = false;
       }
     });
   }
+}
 
 function buildThresholdList() {
     let thresholds = [];
@@ -113,5 +132,6 @@ function buildThresholdList() {
     return thresholds;
   }
 
-  initCanvas();
-  createMutationObserver();
+initCanvas();
+createMutationObserver();
+addScrollListener([[imgElements,'blue'], [textElements, 'red']]);
