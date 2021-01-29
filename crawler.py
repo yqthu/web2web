@@ -1,4 +1,4 @@
-from selenium import webdriver
+from seleniumwire import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.action_chains import ActionChains
@@ -18,6 +18,11 @@ class MyChromeDriver(webdriver.Chrome):
         response = self.command_executor._request('POST', url, body)
         return response.get('value')
 
+def my_response_interceptor(request, response):
+    headers = {k.lower(): v for k, v in response.headers.items()}
+    headers['content-security-policy'] = ''
+    response.headers = headers
+
 class Crawler:
     def __init__(self):
         chrome_options = Options()
@@ -25,6 +30,7 @@ class Crawler:
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
         chrome_options.add_argument("--allow-file-access-from-files")
+        chrome_options.add_argument("--disable-web-security")
         chrome_options.add_experimental_option("mobileEmulation", {
             "deviceName": "Nexus 5",
             # "deviceMetrics": {"width": 1080, "height": 1920},
@@ -35,11 +41,9 @@ class Crawler:
         prefs["download.default_directory"]='/tmp'
         chrome_options.add_experimental_option("prefs", prefs)
         self.driver = MyChromeDriver(options=chrome_options)
+        self.driver.response_interceptor = my_response_interceptor
         self.driver.set_window_size(360,640)
         self.driver.implicitly_wait(10)
-        # self.driver.send_cmd("Emulation.setUserAgentOverride",
-        #     {"userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/74.0.3729.157 Safari/537.36"
-        # })
 
     def _get_element_at_coordinate(self, x, y):
         return self.driver.execute_script(
@@ -104,9 +108,12 @@ class Crawler:
             seg_css.innerHTML = `{f.read()}`
             document.head.appendChild(seg_css);
         """
-        with open('seg/seg.js') as f:
-            self.driver.execute_script(f.read())
-            self.driver.execute_script(cmd)
+        self.driver.execute_script(cmd)
+        self.driver.execute_script("""
+            var seg_js = document.createElement('script');
+            seg_js.setAttribute('src', 'http://localhost:8000/seg/seg.js');
+            document.head.appendChild(seg_js);
+        """)
         self.scroll('DOWN')
         self.scroll('UP')
 
