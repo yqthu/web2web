@@ -1,19 +1,8 @@
-const numSteps = 20.0;
-
-let prevRatio = 0.0;
-let increasingColor = "rgba(40, 40, 190, ratio)";
-let decreasingColor = "rgba(190, 40, 40, ratio)";
 let canvasScale = 3;
-
 let canvasRects = {};
+var recordedElements = null;
 
-var textElements = {};
-var imgElements = {};
-let textIntersectionObserver = null;
-let imgIntersectionObserver = null;
-
-function $xx(xpath)
-{
+function $xx(xpath) {
     let results = [];
     let query = document.evaluate(xpath, document || document,
         null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null);
@@ -23,30 +12,87 @@ function $xx(xpath)
     return results;
 }
 
-function createMutationObserver() {
-  let config = { attributes: true, childList: true, subtree: true };
-  var mo = new MutationObserver((mutationsList, observer) => {
-    textIntersectionObserver = createIntersectionObserver(textElements,
-      "//*[string-length(text()) > 0]",
-      textIntersectionObserver,
-    (intersObserver, elementList) => (element, index) => {
+var defaultElementCollector = (elementList) => (element, index) => {
+  element.tracker_id = index;
+  elementList[element.tracker_id] = element;
+};
+
+function isScrolledIntoView(el) {
+  var rect = el.getBoundingClientRect();
+  var elemTop = rect.top;
+  var elemBottom = rect.bottom;
+
+  isVisible = elemTop < window.innerHeight && elemBottom >= 0;
+  return isVisible;
+}
+
+class RecordedElements {
+  constructor(xpath, elementCollector = defaultElementCollector) {
+    this.xpath = xpath;
+    this.observer = null;
+    this.elements = {};
+    this.elementCollector = elementCollector;
+  }
+
+  createIntersectionObserver() {
+    let options = {
+      root: null,
+      rootMargin: "0px",
+      threshold: buildThresholdList(),
+      trackVisibility: true,
+      delay: 200
+    };
+  
+    if (this.observer) {
+      this.observer.disconnect();
+    }
+    let els = $xx(this.xpath);
+    els.forEach(this.elementCollector(this.elements));
+    this.observer = new IntersectionObserver(handleIntersect(this), options);
+    els.forEach((element) => {
+      // FIXME: The first time 
+      let rect = element.getBoundingClientRect();
+      element.__tracker_isVisible = isScrolledIntoView(element);
+      element.__tracker_intersectWidth = rect.width;
+      element.__tracker_intersectHeight = rect.height;
+      this.observer.observe(element);
+    });
+    return this.observer;
+  }
+}
+
+var mutationCallback = (mutationsList, observer) => {
+  // console.log(mutationsList);
+  recordedElements = [
+    new RecordedElements("//*[string-length(text()) > 0]",
+    (elementList) => (element, index) => {
       for (const node of element.childNodes) {
         if (node.nodeType == 3 && node.nodeValue.trim().length > 0) {
           element.tracker_id = index;
           elementList[element.tracker_id] = element;
-          intersObserver.observe(element);
         }
       }
-    });
-    imgIntersectionObserver = createIntersectionObserver(imgElements,
-      "//img",
-      imgIntersectionObserver,
-      (intersObserver, elementList) => (element, index) => {
-        element.tracker_id = index;
-        elementList[element.tracker_id] = element;
-        intersObserver.observe(element);
-      });
+    }),
+    new RecordedElements("//img"),
+    new RecordedElements("//button"),
+    new RecordedElements("//svg")
+  ];
+  recordedElements.forEach((recEle) => {
+    recEle.createIntersectionObserver();
   });
+  let elementLists = [
+    [recordedElements[1].elements, 'blue'],
+    [recordedElements[0].elements, 'red'],
+    [recordedElements[2].elements, 'green'],
+    [recordedElements[3].elements, 'white'],
+  ];
+  scrollCallback(elementLists)(1);
+  addScrollListener(elementLists);
+};
+
+function createMutationObserver() {
+  let config = { attributes: false, childList: true, subtree: true };
+  var mo = new MutationObserver(mutationCallback);
   mo.observe(document.body, config);
 }
 
@@ -60,25 +106,8 @@ function initCanvas() {
   return canvasNode;
 }
 
-function createIntersectionObserver(elementList, xpath, oldObserver, needNode) {
-  let options = {
-    root: null,
-    rootMargin: "0px",
-    threshold: buildThresholdList(),
-    trackVisibility: true,
-    delay: 200
-  };
-
-  if (oldObserver) {
-    oldObserver.disconnect();
-  }
-  oldObserver = new IntersectionObserver(handleIntersect(elementList), options);
-  $xx(xpath).forEach(needNode(oldObserver, elementList));
-  return oldObserver;
-}
-
-function addScrollListener(elementLists) {
-  window.addEventListener("scroll", (event) => {
+function scrollCallback(elementLists) {
+  return (_) => {
     let canvasNode = $xx('//canvas')[0];
     let ctx = canvasNode.getContext("2d");
     ctx.clearRect(0,0,canvasNode.width,canvasNode.height);
@@ -100,20 +129,29 @@ function addScrollListener(elementLists) {
       }
     });
     ctx.stroke();
-  }, false);
+  };
 }
 
-function handleIntersect(elementList){
+function addScrollListener(elementLists) {
+  window.addEventListener("scroll", scrollCallback(elementLists), false);
+}
+
+function handleIntersect(recEle){
+  console.log(recEle);
   return (entries, observer) => {
     entries.forEach((entry) => {
       if (entry.isIntersecting) {
-        let te = elementList[entry.target.tracker_id];
+        let te = recEle.elements[entry.target.tracker_id];
+        if (te === undefined) {
+          recEle.elements[entry.target.tracker_id] = entry.target;
+          te = entry.target;
+        }
         te.__tracker_isVisible = true;
         te.__tracker_intersectWidth = entry.intersectionRect.width;
         te.__tracker_intersectHeight = entry.intersectionRect.height;
         canvasRects[entry.target.tracker_id] = entry.intersectionRect;
       } else {
-        elementList[entry.target.tracker_id].__tracker_isVisible = false;
+        recEle.elements[entry.target.tracker_id].__tracker_isVisible = false;
       }
     });
   }
@@ -134,4 +172,5 @@ function buildThresholdList() {
 
 initCanvas();
 createMutationObserver();
-addScrollListener([[imgElements,'blue'], [textElements, 'red']]);
+mutationCallback(1,2);
+// addScrollListener([[imgElements,'blue'], [textElements, 'red']]);
