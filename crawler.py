@@ -31,6 +31,7 @@ class Crawler:
         chrome_options.add_argument("--disable-dev-shm-usage")
         chrome_options.add_argument("--allow-file-access-from-files")
         chrome_options.add_argument("--disable-web-security")
+        # chrome_options.add_extension("/Users/yqwang/Downloads/olcpmlhnomiabbndnfplobojnhjljapm.crx")
         chrome_options.add_experimental_option("mobileEmulation", {
             "deviceName": "Nexus 5",
             # "deviceMetrics": {"width": 1080, "height": 1920},
@@ -101,21 +102,50 @@ class Crawler:
                 arguments[0].appendChild(meta);
             """, head)
 
+    def _load_js(self, path):
+        self.driver.execute_script(f"""
+            var js = document.createElement('script');
+            js.setAttribute('src', 'http://localhost:8000/{path}');
+            document.head.appendChild(js);
+        """)
+
     def onload(self):
         self._enable_scroll()
-        with open('seg/seg.css') as f:
+        with open('static/seg.css') as f:
             cmd = f"""var seg_css = document.createElement('style');
             seg_css.innerHTML = `{f.read()}`
             document.head.appendChild(seg_css);
         """
         self.driver.execute_script(cmd)
+        self._load_js('static/seg.js')
+        self._always_open_in_the_same_tab()
+
+    def _always_open_in_the_same_tab(self):
         self.driver.execute_script("""
-            var seg_js = document.createElement('script');
-            seg_js.setAttribute('src', 'http://localhost:8000/seg/seg.js');
-            document.head.appendChild(seg_js);
+        window.open = function (open) {
+            return function (url, name, features) {
+                name = "_self";
+                return open.call(window, url, name, features);
+            };
+        }(window.open);
+
+        function changeLinkTarget(event){
+            if(event.target.closest('a')){
+                event.target.closest('a').target = '_self';
+            }
+        }
+        document.addEventListener('click', changeLinkTarget);
+
+        document.querySelectorAll('[target="_blank"]')
+            .forEach(x => {x.setAttribute('target', '_self');})
         """)
-        self.scroll('DOWN')
-        self.scroll('UP')
+        self._load_js('static/same_tab.js')
+        # FIXME: This can bypass:
+        # Object.assign(document.createElement('a'), {
+        #     target: '_blank',
+        #     href: href,
+        # }).click();
+
 
     def get_url(self, url):
         ret = self.driver.get(url)
@@ -190,6 +220,33 @@ class Crawler:
             return ret
         else:
             raise RuntimeError(f"Why do I get {len(self.driver.window_handles)} opening?")
+
+    def get_state(self):
+        ret = {}
+        ret['url'] = self.driver.current_url
+        ret['title'] = self.driver.title
+        ret['recorded_elements'] = self.driver.execute_script("""
+            return recordedElements.map(rel => Object.fromEntries(
+                Object.entries(rel.elements).map(([k, el]) => {
+                    let rect = el.getBoundingClientRect();
+                    return [k, {
+                        isVisible: el.__tracker_isVisible,
+                        x: rect.x,
+                        y: rect.y,
+                        intersectWidth: el.__tracker_intersectWidth,
+                        intersectHeight: el.__tracker_intersectHeight
+                    }];
+                }
+            )));
+        """)
+        ret['text'] = self.driver.execute_script("""
+            return Object.fromEntries(Object.entries(recordedElements[0].elements)
+                .filter(([k, el]) => el.text)
+                .map(([k, el]) => [k, el.text])
+            );
+        """)
+        ret['screenshot'] = self.screenshot()
+        return ret
 
     def type_word(self, word):
         return self.driver.send_cmd(

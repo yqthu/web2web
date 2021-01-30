@@ -137,7 +137,7 @@ function addScrollListener(elementLists) {
 }
 
 function handleIntersect(recEle){
-  console.log(recEle);
+  // console.log(recEle);
   return (entries, observer) => {
     entries.forEach((entry) => {
       if (entry.isIntersecting) {
