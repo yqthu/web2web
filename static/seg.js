@@ -101,7 +101,7 @@ function initCanvas() {
   canvasNode.setAttribute('height', Math.floor(window.innerHeight / canvasScale));
   canvasNode.setAttribute('width', Math.floor(window.innerWidth / canvasScale));
   canvasNode.setAttribute('class', 'canvasContainer')
-  canvasNode.setAttribute('style', 'z-index: 999;')
+  canvasNode.setAttribute('style', 'z-index: -999;')
   document.body.appendChild(canvasNode);
   return canvasNode;
 }

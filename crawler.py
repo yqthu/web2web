@@ -146,7 +146,6 @@ class Crawler:
         #     href: href,
         # }).click();
 
-
     def get_url(self, url):
         ret = self.driver.get(url)
         self.onload()
@@ -222,6 +221,10 @@ class Crawler:
             raise RuntimeError(f"Why do I get {len(self.driver.window_handles)} opening?")
 
     def get_state(self):
+        try:
+            self.driver.execute_script("return recordedElements;")
+        except selenium.common.exceptions.JavascriptException:
+            self.onload()
         ret = {}
         ret['url'] = self.driver.current_url
         ret['title'] = self.driver.title

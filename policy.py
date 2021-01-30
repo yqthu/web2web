@@ -9,6 +9,7 @@ import random
 import os
 from concurrent.futures import ProcessPoolExecutor
 from multiprocessing import Process
+import logging
 
 def img_equal(im1, im2):
     diff = np.array(im1) - np.array(im2)
@@ -27,10 +28,13 @@ class Policy:
         return len(os.listdir(self.save_dir))
 
     def run(self):
-        current_screenshot = self.crawler.screenshot()
+        current_screenshot = self.crawler.get_state()['screenshot']
         while True:
-            current_screenshot.save(f'{self.save_dir}/{self.get_save_start_num():06d}.png')
-            current_screenshot = self.random_move(current_screenshot)
+            try:
+                current_screenshot.save(f'{self.save_dir}/{self.get_save_start_num():06d}.png')
+                current_screenshot = self.random_move(current_screenshot)
+            except Exception as e:
+                logging.warning(e)
 
     def random_move(self, current_screenshot):
         step = 0
@@ -45,11 +49,11 @@ class Policy:
                 self.crawler.click_element(el)
             elif rnd < 0.2:
                 self.crawler.click_at(random.random(), random.random())
-            elif rnd < 0.5:
-                scale = random.random()+1
-                if random.random() < 0.5:
-                    scale = 1 / scale
-                self.crawler.zoom(random.random(), random.random(), scale)
+            # elif rnd < 0.5:
+            #     scale = random.random()+1
+            #     if random.random() < 0.5:
+            #         scale = 1 / scale
+            #     self.crawler.zoom(random.random(), random.random(), scale)
             elif rnd < 0.8:
                 self.crawler.type_word("".join([random.choice(string.digits+string.ascii_letters) for i in range(random.randint(1, 8))]))
             else:
@@ -64,10 +68,12 @@ def run():
     url = "https://www.hao123.com/"
     url = "https://www.zhihu.com/"
     url = "https://www.zhihu.com/question/20384380"
+    url = "http://dh.123.sogou.com/"
+    # url = "https://market.m.taobao.com/apps/youhaohuo/index/index4.html"
     crawler = Crawler()
     policy = Policy(crawler, url)
     # crawler.close_popup()
-    import pdb; pdb.set_trace()
+    # import pdb; pdb.set_trace()
     policy.run()
 
 
