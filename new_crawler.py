@@ -1,5 +1,8 @@
 import asyncio
 import pyppeteer
+from PIL import Image
+import io
+import numpy as np
 
 class aobject(object):
     """
@@ -16,11 +19,11 @@ class aobject(object):
         pass
 
 class Crawler(aobject):
-    async def __init__(self, id):
-        self.browser = await pyppeteer.launch(headless=False)
+    async def __init__(self, config):
+        self.browser = await pyppeteer.launch()
         foo = await self.browser.pages()
         self.page = foo[0]
-        self.id = id
+        self.id = config['id']
         await self.page.emulate({
             'viewport': {
                 'width': 360,
@@ -107,24 +110,74 @@ class Crawler(aobject):
             self._enable_segmentation(),
             self._always_open_in_the_same_tab())
 
-    async def scroll(self, x, y):
+    async def scroll(self, x, y, strength):
         x, y = await self._convert_coordinate(x, y, allow_negative=True)
         return self._send_cmd(
             'Input.synthesizeScrollGesture',
-            {'x': 0, 'y': 0, 'xDistance': 0.3*x, 'yDistance': 0.3*y}
+            {'x': 0, 'y': 0, 'xDistance': 0.1*x*strength, 'yDistance': 0.1*y*strength}
         )
 
     async def click_at(self, x: float, y: float):
+        await self.page.setBypassCSP(True)
         x, y = await self._convert_coordinate(x, y)
         await self.page.touchscreen.tap(x, y)
         await self._onload()
 
     async def run(self):
+        await self.page.setBypassCSP(True)
         await self.page.goto('https://baidu.com')
         await self._onload()
         await self.click_at(0.3, 0.5)
         await self.page.screenshot({'path': f'/tmp/example{self.id}.png'})
         await self.browser.close()
+
+    async def get_segmentation(self):
+        try:
+            seg = await self.page.evaluate('recordedElements')
+        except pyppeteer.errors.ElementHandleError:
+            await self._load_js('static/seg.js', id='__tracker_seg_script')
+        segmentation = await self.page.evaluate("""
+            recordedElements.map(rel => Object.fromEntries(
+                Object.entries(rel.elements).map(([k, el]) => {
+                    let rect = el.getBoundingClientRect();
+                    return [k, {
+                        isVisible: el.__tracker_isVisible,
+                        x: rect.x,
+                        y: rect.y,
+                        intersectWidth: el.__tracker_intersectWidth,
+                        intersectHeight: el.__tracker_intersectHeight
+                    }];
+                }
+            )))
+        """, force_expr=True)
+        text = await self.page.evaluate("""
+            Object.fromEntries(Object.entries(recordedElements[0].elements)
+                .filter(([k, el]) => el.text)
+                .map(([k, el]) => [k, el.text])
+            )
+        """, force_expr=True)
+        return segmentation, text
+
+    async def get_state(self):
+        segmentation, text = await self.get_segmentation()
+        url = self.page.url
+        title = await self.page.title()
+        img_bytes = await self.page.screenshot()
+        return {
+            'segmentation': segmentation,
+            'text': text,
+            'url': url,
+            'text': text,
+            'screenshot': np.array(Image.open(io.BytesIO(img_bytes)))
+        }
+
+    async def press(self, key):
+        await self.page.press(key)
+
+    async def goto(self, url):
+        await self.page.setBypassCSP(True)
+        await self.page.goto(url)
+        await self._onload()
 
 async def _main(i):
     crawler = await Crawler(i)
@@ -133,5 +186,5 @@ async def _main(i):
 async def main():
     await asyncio.gather(_main(0), _main(1))
 
-# asyncio.create_task(_main(1))
-asyncio.get_event_loop().run_until_complete(_main(1))
+if __name__ == '__main__':
+    asyncio.get_event_loop().run_until_complete(_main(1))

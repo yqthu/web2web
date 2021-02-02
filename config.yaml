@@ -1,0 +1,7 @@
+id: 1
+start_url: https://www.zhihu.com/question/20384380
+max_steps: 5
+num_envs: 3
+action:
+  x_grain: 72
+  y_grain: 128
