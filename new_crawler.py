@@ -3,6 +3,7 @@ import pyppeteer
 from PIL import Image
 import io
 import numpy as np
+import cv2
 
 class aobject(object):
     """
@@ -20,7 +21,7 @@ class aobject(object):
 
 class Crawler(aobject):
     async def __init__(self, config):
-        self.browser = await pyppeteer.launch()
+        self.browser = await pyppeteer.launch(headless=True)
         foo = await self.browser.pages()
         self.page = foo[0]
         self.id = config['id']
@@ -112,7 +113,7 @@ class Crawler(aobject):
 
     async def scroll(self, x, y, strength):
         x, y = await self._convert_coordinate(x, y, allow_negative=True)
-        return self._send_cmd(
+        return await self._send_cmd(
             'Input.synthesizeScrollGesture',
             {'x': 0, 'y': 0, 'xDistance': 0.1*x*strength, 'yDistance': 0.1*y*strength}
         )
@@ -163,16 +164,23 @@ class Crawler(aobject):
         url = self.page.url
         title = await self.page.title()
         img_bytes = await self.page.screenshot()
-        return {
+        ret = {
             'segmentation': segmentation,
             'text': text,
             'url': url,
             'text': text,
             'screenshot': np.array(Image.open(io.BytesIO(img_bytes)))
         }
+        return ret
+
+    def get_screenshot_from_state(self, state):
+        return cv2.resize(state['screenshot'], (360, 640))
 
     async def press(self, key):
-        await self.page.press(key)
+        await self.page.keyboard.press(key)
+
+    async def type(self, word):
+        await self.page.keyboard.type(word)
 
     async def goto(self, url):
         await self.page.setBypassCSP(True)
