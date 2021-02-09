@@ -2,23 +2,19 @@ from new_crawler import Crawler, aobject
 from environment import Environment
 import random
 import yaml
-import asyncio
 
-class Policy(aobject):
-    async def __init__(self, config):
-        self.envs = [(await Environment(config)) for _ in range(config['num_envs'])]
+class Policy:
+    def __init__(self, config):
+        self.env = Environment(config)
 
-    async def _run(self, env):
+    def run(self):
         while True:
             print("New loop")
-            state = await env.reset()
+            state = self.env.reset()
             done = False
             while not done:
                 action = self._get_action(state)
-                state, reward, done, _ = await env.step(action)
-
-    async def run(self):
-        await asyncio.gather(*map(self._run, self.envs))
+                state, reward, done, _ = self.env.step(action)
 
 class RandomPolicy(Policy):
     # (act, x, y, key, word, strength, x_scroll_direction, y_scroll_direction)
@@ -35,11 +31,11 @@ class RandomPolicy(Policy):
         }
         return ret
 
-async def main():
+def main():
     with open('config.yaml') as f:
         config = yaml.load(f)
-    policy = await RandomPolicy(config)
-    await policy.run()
+    policy = RandomPolicy(config)
+    policy.run()
 
 if __name__ == '__main__':
-    asyncio.run(main()) #, debug=True)
+    main()

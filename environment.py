@@ -4,12 +4,13 @@ import yaml
 import asyncio
 import numpy as np
 
-class Environment(aobject):
-    async def __init__(self, config):
+class AsyncEnvironment(aobject):
+    async def __init__(self, config, id):
         self.crawler = await Crawler(config)
         self.start_url = config['start_url']
         self.max_steps = config['max_steps']
         self.x_grain, self.y_grain = config['action']['x_grain'], config['action']['y_grain']
+        self.id = id
 
     async def reset(self):
         await self.crawler.goto(self.start_url)
@@ -73,3 +74,17 @@ class Environment(aobject):
 
     async def render(self):
         return await self.crawler.page.screenshot()
+
+class Environment:
+    def __init__(self, config):
+        self.loop = asyncio.get_event_loop()
+        self.envs = self._run([AsyncEnvironment(config, i) for i in range(config['num_envs'])])
+
+    def reset(self):
+        return self._run([env.reset() for env in self.envs])
+
+    def step(self, action):
+        return tuple(zip(*self._run([env.step(action) for env in self.envs])))
+
+    def _run(self, aws):
+        return self.loop.run_until_complete(asyncio.gather(*aws))
