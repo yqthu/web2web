@@ -4,6 +4,7 @@ from PIL import Image
 import io
 import numpy as np
 import cv2
+import logging
 
 class aobject(object):
     """
@@ -21,10 +22,15 @@ class aobject(object):
 
 class Crawler(aobject):
     async def __init__(self, config):
-        self.browser = await pyppeteer.launch(headless=True)
+        self.browser = await pyppeteer.launch(headless=config['headless'])
+        self.id = config['id']
+        self.timeout = config['timeout']
+        await self.reset()
+
+    async def reset(self):
         foo = await self.browser.pages()
         self.page = foo[0]
-        self.id = config['id']
+        self.page.setDefaultNavigationTimeout(self.timeout)
         await self.page.emulate({
             'viewport': {
                 'width': 360,
@@ -72,9 +78,12 @@ class Crawler(aobject):
     async def _enable_scroll(self):
         for selector in ['html', 'body']:
             el = await self.page.J(selector)
-            old_style = await self.page.evaluate("""(el) => {
-                el.setAttribute('style', 'overflow: visible !important;')
-            }""", el)
+            try:
+                old_style = await self.page.evaluate("""(el) => {
+                    el.setAttribute('style', 'overflow: visible !important;')
+                }""", el)
+            except pyppeteer.errors.ElementHandleError:
+                import pdb; pdb.set_trace()
 
     async def _always_open_in_the_same_tab(self):
         await self.page.evaluate("""
@@ -103,9 +112,9 @@ class Crawler(aobject):
     async def _onload(self):
         try:
             await self.page.waitForNavigation(
-                waitUntil='domcontentloaded', timeout=5000)
+                waitUntil='domcontentloaded')
         except pyppeteer.errors.TimeoutError:
-            pass
+            await self.page.keyboard.press('Escape')
         await asyncio.gather(
             self._enable_scroll(),
             self._enable_segmentation(),
@@ -133,10 +142,21 @@ class Crawler(aobject):
         await self.browser.close()
 
     async def get_segmentation(self):
+        for _ in range(3):
+            try:
+                return await self._get_segmentation()
+            except (pyppeteer.errors.ElementHandleError, pyppeteer.errors.NetworkError) as e:
+                logging.warning(e)
+                await asyncio.sleep(3)
+
+    async def _get_segmentation(self):
         try:
             seg = await self.page.evaluate('recordedElements')
         except pyppeteer.errors.ElementHandleError:
             await self._load_js('static/seg.js', id='__tracker_seg_script')
+        await self.page.evaluate(
+            "Object.fromEntries = arr => Object.assign({}, ...Array.from(arr, ([k, v]) => ({[k]: v}) ));",
+            force_expr=True)
         segmentation = await self.page.evaluate("""
             recordedElements.map(rel => Object.fromEntries(
                 Object.entries(rel.elements).map(([k, el]) => {
@@ -184,8 +204,17 @@ class Crawler(aobject):
 
     async def goto(self, url):
         await self.page.setBypassCSP(True)
-        await self.page.goto(url)
+        try:
+            await self.page.goto(url)
+        except pyppeteer.errors.TimeoutError:
+            await self.page.keyboard.press('Escape')
         await self._onload()
+
+    async def back(self):
+        try:
+            await self.page.goBack()
+        except pyppeteer.errors.TimeoutError:
+            await self.page.keyboard.press('Escape')
 
 async def _main(i):
     crawler = await Crawler(i)

@@ -6,7 +6,10 @@ import string
 import numpy as np
 import gym
 from collections import OrderedDict
-from stable_baselines.common.vec_env import VecEnv
+import pyppeteer
+import logging
+from stable_baselines3.common.vec_env import VecEnv, DummyVecEnv
+from stable_baselines3 import PPO
 
 class AsyncEnvironment(aobject, gym.Env):
     __actions = OrderedDict([
@@ -30,13 +33,36 @@ class AsyncEnvironment(aobject, gym.Env):
         self.action_space = gym.spaces.MultiDiscrete(list(map(len, self.__actions.values())))
 
     async def reset(self):
+        await self.crawler.reset()
         await self.crawler.goto(self.start_url)
         self.history_screenshot = []
         self.history_url = []
         state = await self.crawler.get_state()
+        self.step_count = 0
         return self.crawler.get_screenshot_from_state(state)
 
     async def step(self, action):
+        logging.info(f"async step: {self.step_count}")
+        try:
+            ret = await self._step(action)
+            self.step_count += 1
+            return ret
+        except (pyppeteer.errors.NetworkError, pyppeteer.errors.PageError) as e:
+            logging.warning(e)
+            return await self._step_reset()
+        except pyppeteer.errors.ElementHandleError as e:
+            logging.warning(e)
+            import pdb; pdb.set_trace()
+            return await self._step_reset()
+
+    async def _step_reset(self):
+        obs = await self.reset()
+        reward = 0.
+        done = True
+        info = {}
+        return obs, reward, done, info
+
+    async def _step(self, action):
         action = self._decode_action(action)
         act = action['act']
         if act == 'wait':
@@ -49,10 +75,10 @@ class AsyncEnvironment(aobject, gym.Env):
             await self.crawler.type(action['word'])
         elif act == 'back':
             if self.crawler.page.url == self.start_url:
-                observation, reward, done, info = await self._step()
-                return observation, reward, True, info
+                return await self._step_reset()
             else:
-                await self.crawler.page.goBack()
+                print(self.crawler.page.url)
+                await self.crawler.back()
         elif act == 'reset':
             await self.reset()
         elif act == 'scroll':
@@ -61,16 +87,17 @@ class AsyncEnvironment(aobject, gym.Env):
             await self.crawler.scroll(x_dir, y_dir, action['strength'])
         else:
             raise ValueError(f"Unknown action {act}")
-        return await self._step()
+        return await self._step_return()
 
     def _decode_action(self, action):
         return {k: v[a] for a, (k, v) in zip(action, self.__actions.items())}
 
-    async def _step(self):
+    async def _step_return(self):
         state = await self.crawler.get_state()
         observation = self.crawler.get_screenshot_from_state(state)
         reward = self._get_reward(state)
-        done = len(self.history_screenshot) >= self.max_steps
+        # done = len(self.history_screenshot) >= self.max_steps
+        done = self.step_count >= self.max_steps
         if isinstance(observation, tuple):
             import pdb; pdb.set_trace()
         return observation, reward, done, {}
@@ -94,39 +121,50 @@ class AsyncEnvironment(aobject, gym.Env):
     async def render(self):
         return await self.crawler.page.screenshot()
 
-class Environment(gym.Env):
+    async def close(self):
+        return await self.crawler.browser.close()
+
+class AsyncVecEnv(DummyVecEnv):
     def __init__(self, config):
         self.loop = asyncio.get_event_loop()
         self.envs = self._run([AsyncEnvironment(config, i) for i in range(config['num_envs'])])
         self.action_space = self.envs[0].action_space
         self.observation_space = self.envs[0].observation_space
+        self.num_envs = len(self.envs)
+
+        self.actions = None
 
     def reset(self):
         ret = np.array(self._run([env.reset() for env in self.envs]))
-        return ret 
+        return ret
 
-    def step(self, action):
-        obs, rewards, dones, info = zip(*self._run([env.step(action) for env in self.envs]))
+    def step_async(self, actions):
+        self.actions = actions
+
+    def step_wait(self):
+        obs, rewards, dones, info = zip(*self._run([env.step(a) for env, a in zip(self.envs, self.actions)]))
         obs = np.stack(obs)
         return obs, rewards, dones, info
 
     def _run(self, aws):
         return self.loop.run_until_complete(asyncio.gather(*aws))
 
-    def render(self, mode='human'):
-        raise NotImplementedError
+    def render(self, mode):
+        return self._run([env.render(mode=mode) for env in self.envs])
 
     def close(self):
-        raise NotImplementedError
+        return self._run([env.close() for env in self.envs])
 
 if __name__ == '__main__':
+    logging.basicConfig(format='%(asctime)s,%(msecs)d %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s',
+        datefmt='%Y-%m-%d:%H:%M:%S',
+        level=logging.INFO)
+    logger = logging.getLogger(__name__)
+
     with open('config.yaml') as f:
         config = yaml.load(f)
-    env = Environment(config)
-    # from stable_baselines.common.env_checker import check_env
+    env = AsyncVecEnv(config)
+    # from stable_baselines3.common.env_checker import check_env
     # check_env(env)
-    from stable_baselines.common.policies import MlpPolicy
-    from stable_baselines.common.vec_env import DummyVecEnv
-    from stable_baselines import PPO2
-    model = PPO2(MlpPolicy, env, verbose=1)
+    model = PPO('MlpPolicy', env, verbose=1)
     model.learn(total_timesteps=10000)

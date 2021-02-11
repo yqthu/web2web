@@ -1,7 +1,9 @@
 id: 1
-start_url: https://www.zhihu.com/question/20384380
+start_url: https://m.hao123.com/
 max_steps: 5
-num_envs: 3
+timeout: 1000
+num_envs: 1
+headless: False
 action:
   x_grain: 72
   y_grain: 128
