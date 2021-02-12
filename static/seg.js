@@ -1,6 +1,7 @@
 let canvasScale = 3;
 let canvasRects = {};
 var recordedElements = null;
+let showCanvas = false;
 
 function $xx(xpath) {
     let results = [];
@@ -86,8 +87,10 @@ var mutationCallback = (mutationsList, observer) => {
     [recordedElements[2].elements, 'green'],
     [recordedElements[3].elements, 'white'],
   ];
-  scrollCallback(elementLists)(1);
-  addScrollListener(elementLists);
+  if (showCanvas) {
+    scrollCallback(elementLists)(1);
+    addScrollListener(elementLists);
+  }
 };
 
 function createMutationObserver() {
@@ -170,7 +173,9 @@ function buildThresholdList() {
     return thresholds;
   }
 
-initCanvas();
+if (showCanvas) {
+  initCanvas();
+}
 createMutationObserver();
 mutationCallback(1,2);
 // addScrollListener([[imgElements,'blue'], [textElements, 'red']]);
