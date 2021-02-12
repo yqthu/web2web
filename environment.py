@@ -37,22 +37,26 @@ class AsyncEnvironment(aobject, gym.Env):
         await self.crawler.goto(self.start_url)
         self.history_screenshot = []
         self.history_url = []
-        state = await self.crawler.get_state()
         self.step_count = 0
+        state = await self.crawler.get_state()
         return self.crawler.get_screenshot_from_state(state)
 
     async def step(self, action):
-        logging.info(f"async step: {self.step_count}")
         try:
-            ret = await self._step(action)
+            ret = await asyncio.wait_for(self._step(action), timeout=30)
+            logging.info(f"async step: {self.step_count} - {ret[1]} - {ret[2]}")
             self.step_count += 1
             return ret
-        except (pyppeteer.errors.NetworkError, pyppeteer.errors.PageError) as e:
+        except (pyppeteer.errors.NetworkError, pyppeteer.errors.PageError, pyppeteer.errors.PageError) as e:
             logging.warning(e)
             return await self._step_reset()
         except pyppeteer.errors.ElementHandleError as e:
             logging.warning(e)
             import pdb; pdb.set_trace()
+            return await self._step_reset()
+        except asyncio.TimeoutError as e:
+            logging.warning(e)
+            await self.crawler.reset_browser()
             return await self._step_reset()
 
     async def _step_reset(self):
@@ -65,6 +69,8 @@ class AsyncEnvironment(aobject, gym.Env):
     async def _step(self, action):
         action = self._decode_action(action)
         act = action['act']
+        # if self.step_count > 3:
+        #     await self.crawler.goto('chrome://crash')
         if act == 'wait':
             await asyncio.sleep(0.5 * action['strength'])
         elif act == 'click':
@@ -77,7 +83,7 @@ class AsyncEnvironment(aobject, gym.Env):
             if self.crawler.page.url == self.start_url:
                 return await self._step_reset()
             else:
-                print(self.crawler.page.url)
+                logging.debug(self.crawler.page.url)
                 await self.crawler.back()
         elif act == 'reset':
             await self.reset()
@@ -105,10 +111,9 @@ class AsyncEnvironment(aobject, gym.Env):
     def _get_reward(self, state):
         screenshot = state['screenshot']
         # TODO: PCA
-        screenshot_encoding = screenshot[:10, :10, 0].reshape(-1)
-        if state['url'] not in self.history_url:
-            reward = 1.0
-        elif not self.history_url:
+        # screenshot_encoding = screenshot[:10, :10, 0].reshape(-1)
+        screenshot_encoding = screenshot.reshape(-1)
+        if not self.history_url:
             reward = 0.0
         else:
             calculate_reward = lambda x: ((screenshot_encoding - x) > 0.01).sum() / len(screenshot_encoding)

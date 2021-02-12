@@ -1,7 +1,7 @@
 id: 1
 start_url: https://m.hao123.com/
-max_steps: 5
-timeout: 1000
+max_steps: 10
+timeout: 5000
 num_envs: 1
 headless: False
 action:

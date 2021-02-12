@@ -22,10 +22,27 @@ class aobject(object):
 
 class Crawler(aobject):
     async def __init__(self, config):
-        self.browser = await pyppeteer.launch(headless=config['headless'])
         self.id = config['id']
         self.timeout = config['timeout']
+        await self.reset_browser()
         await self.reset()
+
+    async def reset_browser(self):
+        if hasattr(self, 'browser'):
+            await self.browser.close()
+        self.browser = await pyppeteer.launch({
+            'ignoreHTTPSErrors': True,
+            'args': [
+                "--unlimited-storage",
+                "--full-memory-crash-report",
+                "--disable-gpu",
+                "--ignore-certificate-errors",
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+                "--disable-dev-shm-usage",
+                # "--force-gpu-mem-available-mb"
+            ],
+            'headless': False})
 
     async def reset(self):
         foo = await self.browser.pages()
@@ -78,12 +95,15 @@ class Crawler(aobject):
     async def _enable_scroll(self):
         for selector in ['html', 'body']:
             el = await self.page.J(selector)
-            try:
-                old_style = await self.page.evaluate("""(el) => {
-                    el.setAttribute('style', 'overflow: visible !important;')
-                }""", el)
-            except pyppeteer.errors.ElementHandleError:
-                import pdb; pdb.set_trace()
+            for _ in range(3):
+                try:
+                    await self.page.evaluate("""(el) => {
+                        el.setAttribute('style', 'overflow: visible !important;')
+                    }""", el)
+                    break
+                except pyppeteer.errors.ElementHandleError as e:
+                    logging.warning(e)
+                    await asyncio.sleep(3)
 
     async def _always_open_in_the_same_tab(self):
         await self.page.evaluate("""
