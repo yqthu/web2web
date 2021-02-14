@@ -149,6 +149,8 @@ class AsyncVecEnv(DummyVecEnv):
     def step_wait(self):
         obs, rewards, dones, info = zip(*self._run([env.step(a) for env, a in zip(self.envs, self.actions)]))
         obs = np.stack(obs)
+        dones = np.array(dones)
+        rewards = np.array(rewards)
         return obs, rewards, dones, info
 
     def _run(self, aws):

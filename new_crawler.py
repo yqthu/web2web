@@ -30,19 +30,24 @@ class Crawler(aobject):
     async def reset_browser(self):
         if hasattr(self, 'browser'):
             await self.browser.close()
-        self.browser = await pyppeteer.launch({
-            'ignoreHTTPSErrors': True,
-            'args': [
-                "--unlimited-storage",
-                "--full-memory-crash-report",
-                "--disable-gpu",
-                "--ignore-certificate-errors",
-                "--no-sandbox",
-                "--disable-setuid-sandbox",
-                "--disable-dev-shm-usage",
-                # "--force-gpu-mem-available-mb"
-            ],
-            'headless': False})
+        while True:
+            try:
+                self.browser = await pyppeteer.launch({
+                    'ignoreHTTPSErrors': True,
+                    'args': [
+                        "--unlimited-storage",
+                        "--full-memory-crash-report",
+                        "--disable-gpu",
+                        "--ignore-certificate-errors",
+                        "--no-sandbox",
+                        "--disable-setuid-sandbox",
+                        "--disable-dev-shm-usage",
+                        # "--force-gpu-mem-available-mb"
+                    ],
+                    'headless': False})
+                return
+            except pyppeteer.errors.BrowserError as e:
+                logging.warning(e)
 
     async def reset(self):
         foo = await self.browser.pages()
@@ -162,12 +167,16 @@ class Crawler(aobject):
         await self.browser.close()
 
     async def get_segmentation(self):
-        for _ in range(3):
+        i = 0
+        while True:
             try:
                 return await self._get_segmentation()
             except (pyppeteer.errors.ElementHandleError, pyppeteer.errors.NetworkError) as e:
-                logging.warning(e)
-                await asyncio.sleep(3)
+                if i > 3:
+                    raise e
+                else:
+                    logging.warning(e)
+                    await asyncio.sleep(3)
 
     async def _get_segmentation(self):
         try:
