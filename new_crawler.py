@@ -218,7 +218,7 @@ class Crawler(aobject):
             'text': text,
             'url': url,
             'text': text,
-            'screenshot': np.array(Image.open(io.BytesIO(img_bytes)))
+            'screenshot': np.array(Image.open(io.BytesIO(img_bytes)).convert('RGB'))
         }
         return ret
 

@@ -10,6 +10,7 @@ import pyppeteer
 import logging
 from stable_baselines3.common.vec_env import VecEnv, DummyVecEnv
 from stable_baselines3 import PPO
+from byol_extractor import ByolCNN
 
 class AsyncEnvironment(aobject, gym.Env):
     __actions = OrderedDict([
@@ -29,7 +30,7 @@ class AsyncEnvironment(aobject, gym.Env):
         self.max_steps = config['max_steps']
         self.x_grain, self.y_grain = config['action']['x_grain'], config['action']['y_grain']
         self.id = id
-        self.observation_space = gym.spaces.Box(low=0, high=255, shape=(640, 360, 4), dtype=np.uint8)
+        self.observation_space = gym.spaces.Box(low=0, high=255, shape=(640, 360, 3), dtype=np.uint8)
         self.action_space = gym.spaces.MultiDiscrete(list(map(len, self.__actions.values())))
         self.timeout = config['reset_browser_timeout'] // 1000
 
@@ -45,7 +46,7 @@ class AsyncEnvironment(aobject, gym.Env):
     async def step(self, action):
         ret, succeed = await self.reset_if_timeout(self._step(action))
         if succeed:
-            logging.info(f"async step: {self.step_count} - {ret[1]} - {ret[2]}")
+            logging.info(f"[{self.id}] async step: {self.step_count} - {ret[1]:.05f} - {ret[2]}")
             self.step_count += 1
         return ret
 
@@ -172,17 +173,27 @@ class AsyncVecEnv(DummyVecEnv):
         return self._run([env.close() for env in self.envs])
 
 if __name__ == '__main__':
+    with open('config.yaml') as f:
+        config = yaml.load(f)
     logging.basicConfig(format='%(asctime)s,%(msecs)d %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s',
         datefmt='%Y-%m-%d:%H:%M:%S',
-        filename='/tmp/1.log',
+        filename=config['log_path'],
         level=logging.INFO
     )
     logger = logging.getLogger(__name__)
-
-    with open('config.yaml') as f:
-        config = yaml.load(f)
     env = AsyncVecEnv(config)
     # from stable_baselines3.common.env_checker import check_env
     # check_env(env)
-    model = PPO('MlpPolicy', env, verbose=1)
-    model.learn(total_timesteps=100000)
+    model = PPO('MlpPolicy', env, verbose=1, n_steps=config['ppo_n_steps']
+        , policy_kwargs={'features_extractor_class': ByolCNN}
+    )
+    try:
+        model.load(config['policy_save_path'])
+    except (FileNotFoundError, EOFError) as e:
+        logging.warning(e)
+    i = 0
+    while True:
+        logging.info(f"Epoch {i}")
+        model.learn(total_timesteps=8192)
+        model.save(config['policy_save_path'])
+        i += 1
