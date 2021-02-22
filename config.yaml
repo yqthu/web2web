@@ -1,7 +1,9 @@
 id: 1
-start_url: https://m.hao123.com/
+# start_url: https://m.hao123.com/
+start_url: https://h5.mse.360.cn/newnavi.html#/home
 max_steps: 10
 timeout: 5000
+reset_browser_timeout: 30000
 num_envs: 1
 headless: False
 action:

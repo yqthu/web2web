@@ -31,6 +31,7 @@ class AsyncEnvironment(aobject, gym.Env):
         self.id = id
         self.observation_space = gym.spaces.Box(low=0, high=255, shape=(640, 360, 4), dtype=np.uint8)
         self.action_space = gym.spaces.MultiDiscrete(list(map(len, self.__actions.values())))
+        self.timeout = config['reset_browser_timeout'] // 1000
 
     async def reset(self):
         await self.crawler.reset()
@@ -42,22 +43,26 @@ class AsyncEnvironment(aobject, gym.Env):
         return self.crawler.get_screenshot_from_state(state)
 
     async def step(self, action):
-        try:
-            ret = await asyncio.wait_for(self._step(action), timeout=30)
+        ret, succeed = await self.reset_if_timeout(self._step(action))
+        if succeed:
             logging.info(f"async step: {self.step_count} - {ret[1]} - {ret[2]}")
             self.step_count += 1
-            return ret
-        except (pyppeteer.errors.NetworkError, pyppeteer.errors.PageError, pyppeteer.errors.PageError) as e:
+        return ret
+
+    async def reset_if_timeout(self, awaitable):
+        try:
+            return (await asyncio.wait_for(awaitable, timeout=self.timeout), True)
+        except (pyppeteer.errors.PageError,
+                pyppeteer.errors.ElementHandleError) as e:
             logging.warning(e)
-            return await self._step_reset()
-        except pyppeteer.errors.ElementHandleError as e:
+            return (await self._step_reset(), False)
+        except (pyppeteer.errors.NetworkError,
+                asyncio.TimeoutError,
+                asyncio.base_futures.InvalidStateError) as e:
             logging.warning(e)
-            import pdb; pdb.set_trace()
-            return await self._step_reset()
-        except asyncio.TimeoutError as e:
-            logging.warning(e)
+            logging.warning("Resetting Browser...")
             await self.crawler.reset_browser()
-            return await self._step_reset()
+            return (await self._step_reset(), False)
 
     async def _step_reset(self):
         obs = await self.reset()
@@ -132,7 +137,7 @@ class AsyncEnvironment(aobject, gym.Env):
 class AsyncVecEnv(DummyVecEnv):
     def __init__(self, config):
         self.loop = asyncio.get_event_loop()
-        self.envs = self._run([AsyncEnvironment(config, i) for i in range(config['num_envs'])])
+        self.envs = self._run([AsyncEnvironment(config, i) for i in range(config['num_envs'])], False)
         self.action_space = self.envs[0].action_space
         self.observation_space = self.envs[0].observation_space
         self.num_envs = len(self.envs)
@@ -153,8 +158,12 @@ class AsyncVecEnv(DummyVecEnv):
         rewards = np.array(rewards)
         return obs, rewards, dones, info
 
-    def _run(self, aws):
-        return self.loop.run_until_complete(asyncio.gather(*aws))
+    def _run(self, aws, with_timeout=True):
+        if with_timeout:
+            aws_with_timeout = [env.reset_if_timeout(aw) for env, aw in zip(self.envs, aws)]
+            return [x[0] for x in self.loop.run_until_complete(asyncio.gather(*aws_with_timeout))]
+        else:
+            return self.loop.run_until_complete(asyncio.gather(*aws))
 
     def render(self, mode):
         return self._run([env.render(mode=mode) for env in self.envs])
@@ -165,7 +174,9 @@ class AsyncVecEnv(DummyVecEnv):
 if __name__ == '__main__':
     logging.basicConfig(format='%(asctime)s,%(msecs)d %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s',
         datefmt='%Y-%m-%d:%H:%M:%S',
-        level=logging.INFO)
+        filename='/tmp/1.log',
+        level=logging.INFO
+    )
     logger = logging.getLogger(__name__)
 
     with open('config.yaml') as f:
@@ -174,4 +185,4 @@ if __name__ == '__main__':
     # from stable_baselines3.common.env_checker import check_env
     # check_env(env)
     model = PPO('MlpPolicy', env, verbose=1)
-    model.learn(total_timesteps=10000)
+    model.learn(total_timesteps=100000)
