@@ -11,6 +11,9 @@ import logging
 from stable_baselines3.common.vec_env import VecEnv, DummyVecEnv
 from stable_baselines3 import PPO
 from byol_extractor import ByolCNN
+import torch
+import traceback
+import sys
 
 class AsyncEnvironment(aobject, gym.Env):
     __actions = OrderedDict([
@@ -55,12 +58,16 @@ class AsyncEnvironment(aobject, gym.Env):
             return (await asyncio.wait_for(awaitable, timeout=self.timeout), True)
         except (pyppeteer.errors.PageError,
                 pyppeteer.errors.ElementHandleError) as e:
-            logging.warning(e)
+            logging.error(f"<{self.id}> {e}")
+            logging.error(traceback.format_exc())
+            logging.error(sys.exc_info()[2])
             return (await self._step_reset(), False)
         except (pyppeteer.errors.NetworkError,
                 asyncio.TimeoutError,
                 asyncio.base_futures.InvalidStateError) as e:
-            logging.warning(e)
+            logging.error(f"<{self.id}> {e}")
+            logging.error(traceback.format_exc())
+            logging.error(sys.exc_info()[2])
             logging.warning("Resetting Browser...")
             await self.crawler.reset_browser()
             return (await self._step_reset(), False)
@@ -74,6 +81,7 @@ class AsyncEnvironment(aobject, gym.Env):
 
     async def _step(self, action):
         action = self._decode_action(action)
+        logging.info(action)
         act = action['act']
         # if self.step_count > 3:
         #     await self.crawler.goto('chrome://crash')
@@ -188,12 +196,13 @@ if __name__ == '__main__':
         , policy_kwargs={'features_extractor_class': ByolCNN}
     )
     try:
-        model.load(config['policy_save_path'])
+        model.load(config['policy_save_path'], map_location=torch.device('cpu'))
     except (FileNotFoundError, EOFError) as e:
         logging.warning(e)
     i = 0
     while True:
         logging.info(f"Epoch {i}")
-        model.learn(total_timesteps=8192)
+        model.learn(total_timesteps=4096)
         model.save(config['policy_save_path'])
+        logging.info(f"Saved to {config['policy_save_path']}")
         i += 1

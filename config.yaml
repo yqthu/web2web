@@ -10,5 +10,5 @@ action:
   x_grain: 72
   y_grain: 128
 policy_save_path: policy
-ppo_n_steps: 128
-log_path: /tmp/2.log
+ppo_n_steps: 96
+log_path: /tmp/with-byol-full-traceback-2.log
