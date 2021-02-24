@@ -95,12 +95,15 @@ class AsyncEnvironment(aobject, gym.Env):
             await self.crawler.type(action['word'])
         elif act == 'back':
             if self.crawler.page.url == self.start_url:
-                return await self._step_reset()
+                # do nothing if already in start_url
+                pass
             else:
                 logging.debug(self.crawler.page.url)
                 await self.crawler.back()
         elif act == 'reset':
-            await self.reset()
+            # goto start_url, episode is continued
+            await self.crawler.reset()
+            await self.crawler.goto(self.start_url)
         elif act == 'scroll':
             x_dir = 1 if action['x_scroll_direction'] == 'right' else -1
             y_dir = 1 if action['y_scroll_direction'] == 'up' else -1
@@ -117,10 +120,13 @@ class AsyncEnvironment(aobject, gym.Env):
         observation = self.crawler.get_screenshot_from_state(state)
         reward = self._get_reward(state)
         # done = len(self.history_screenshot) >= self.max_steps
-        done = self.step_count >= self.max_steps
-        if isinstance(observation, tuple):
-            import pdb; pdb.set_trace()
-        return observation, reward, done, {}
+        done = (self.step_count == self.max_steps)
+        assert self.step_count <= self.max_steps
+        info = {}
+        if done:
+            info["terminal_observation"] = observation
+            observation = await self.reset()
+        return observation, reward, done, info
 
     def _get_reward(self, state):
         screenshot = state['screenshot']
