@@ -98,17 +98,10 @@ class Crawler(aobject):
         ''')
 
     async def _enable_scroll(self):
-        for selector in ['html', 'body']:
-            el = await self.page.J(selector)
-            for _ in range(3):
-                try:
-                    await self.page.evaluate("""(el) => {
-                        el.setAttribute('style', 'overflow: visible !important;')
-                    }""", el)
-                    break
-                except pyppeteer.errors.ElementHandleError as e:
-                    logging.warning(e)
-                    await asyncio.sleep(3)
+        await self.page.evaluate("""
+            document.querySelector('html').setAttribute('style', 'overflow: visible !important;');
+            document.querySelector('body').setAttribute('style', 'overflow: visible !important;');
+        """, force_expr=True)
 
     async def _always_open_in_the_same_tab(self):
         await self.page.evaluate("""
