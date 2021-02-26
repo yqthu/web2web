@@ -14,13 +14,15 @@ from byol_extractor import ByolCNN
 import torch
 import traceback
 import sys
+import re
 
 class AsyncEnvironment(aobject, gym.Env):
     __actions = OrderedDict([
         ('act', ['click', 'scroll', 'press', 'type', 'back', 'reset', 'wait']),
         ('x', range(360 // 5)),
         ('y', range(640 // 5)),
-        ('key', ['Enter', 'Space']),
+        ('key', ['Enter', 'Backspace', 'Escape', 'Tab',
+            'ArrowLeft', 'ArrowRight', 'ArrowDown', 'ArrowUp']),
         ('word', string.ascii_lowercase+string.digits),
         ('strength', range(8)),
         ('x_scroll_direction', ['left', 'right']),
@@ -29,7 +31,7 @@ class AsyncEnvironment(aobject, gym.Env):
     async def __init__(self, config, id):
         await super(AsyncEnvironment, self).__init__()
         self.crawler = await Crawler(config)
-        self.start_url = config['start_url']
+        self.start_urls = config['start_urls']
         self.max_steps = config['max_steps']
         self.x_grain, self.y_grain = config['action']['x_grain'], config['action']['y_grain']
         self.id = id
@@ -39,6 +41,9 @@ class AsyncEnvironment(aobject, gym.Env):
 
     async def reset(self):
         await self.crawler.reset()
+        # if hasattr(self, 'start_url') and re.split('[?#]', self.crawler.page.url)[0] != self.start_url:
+        #     logging.warning(f"[{self.id}] Mismatched start_url with page.url: {self.start_url, re.split('[?#]', self.crawler.page.url)[0]}")
+        self.start_url = random.choice(self.start_urls)
         await self.crawler.goto(self.start_url)
         self.history_screenshot = []
         self.history_url = []
@@ -47,13 +52,13 @@ class AsyncEnvironment(aobject, gym.Env):
         return self.crawler.get_screenshot_from_state(state)
 
     async def step(self, action):
-        ret, succeed = await self.reset_if_timeout(self._step(action))
+        ret, succeed = await self.__reset_if_timeout(self._step(action))
         if succeed:
             logging.info(f"[{self.id}] async step: {self.step_count} - {ret[1]:.05f} - {ret[2]}")
             self.step_count += 1
         return ret
 
-    async def reset_if_timeout(self, awaitable):
+    async def __reset_if_timeout(self, awaitable):
         try:
             return (await asyncio.wait_for(awaitable, timeout=self.timeout), True)
         except (pyppeteer.errors.PageError,
@@ -81,8 +86,10 @@ class AsyncEnvironment(aobject, gym.Env):
 
     async def _step(self, action):
         action = self._decode_action(action)
-        logging.info(action)
+        logging.info(f"[{self.id}] {action}")
+        logging.info(f"[{self.id}] {(len(self.history_screenshot), len(self.history_url))}")
         act = action['act']
+        no_reward = False
         # if self.step_count > 3:
         #     await self.crawler.goto('chrome://crash')
         if act == 'wait':
@@ -94,31 +101,33 @@ class AsyncEnvironment(aobject, gym.Env):
         elif act == 'type':
             await self.crawler.type(action['word'])
         elif act == 'back':
-            if self.crawler.page.url == self.start_url:
+            if re.split('[?#]', self.crawler.page.url)[0] == self.start_url:
                 # do nothing if already in start_url
                 pass
             else:
-                logging.debug(self.crawler.page.url)
+                logging.info(f"[{self.id}] back() from {self.crawler.page.url}")
                 await self.crawler.back()
+            no_reward = True
         elif act == 'reset':
             # goto start_url, episode is continued
             await self.crawler.reset()
             await self.crawler.goto(self.start_url)
+            no_reward = True
         elif act == 'scroll':
             x_dir = 1 if action['x_scroll_direction'] == 'right' else -1
             y_dir = 1 if action['y_scroll_direction'] == 'up' else -1
             await self.crawler.scroll(x_dir, y_dir, action['strength'])
         else:
             raise ValueError(f"Unknown action {act}")
-        return await self._step_return()
+        return await self._step_return(no_reward)
 
     def _decode_action(self, action):
         return {k: v[a] for a, (k, v) in zip(action, self.__actions.items())}
 
-    async def _step_return(self):
+    async def _step_return(self, no_reward):
         state = await self.crawler.get_state()
         observation = self.crawler.get_screenshot_from_state(state)
-        reward = self._get_reward(state)
+        reward = 0. if no_reward else self._get_reward(state)
         # done = len(self.history_screenshot) >= self.max_steps
         done = (self.step_count == self.max_steps)
         assert self.step_count <= self.max_steps
@@ -152,7 +161,7 @@ class AsyncEnvironment(aobject, gym.Env):
 class AsyncVecEnv(DummyVecEnv):
     def __init__(self, config):
         self.loop = asyncio.get_event_loop()
-        self.envs = self._run([AsyncEnvironment(config, i) for i in range(config['num_envs'])], False)
+        self.envs = self._run([AsyncEnvironment(config, i) for i in range(config['num_envs'])])
         self.action_space = self.envs[0].action_space
         self.observation_space = self.envs[0].observation_space
         self.num_envs = len(self.envs)
@@ -161,6 +170,12 @@ class AsyncVecEnv(DummyVecEnv):
 
     def reset(self):
         ret = np.array(self._run([env.reset() for env in self.envs]))
+        # try:
+        #     np.transpose(ret, (0, 3, 1, 2))
+        # except ValueError as e:
+        #     logging.error(traceback.format_exc())
+        #     logging.error(sys.exc_info()[2])
+        #     import pdb; pdb.set_trace()
         return ret
 
     def step_async(self, actions):
@@ -173,12 +188,8 @@ class AsyncVecEnv(DummyVecEnv):
         rewards = np.array(rewards)
         return obs, rewards, dones, info
 
-    def _run(self, aws, with_timeout=True):
-        if with_timeout:
-            aws_with_timeout = [env.reset_if_timeout(aw) for env, aw in zip(self.envs, aws)]
-            return [x[0] for x in self.loop.run_until_complete(asyncio.gather(*aws_with_timeout))]
-        else:
-            return self.loop.run_until_complete(asyncio.gather(*aws))
+    def _run(self, aws):
+        return self.loop.run_until_complete(asyncio.gather(*aws))
 
     def render(self, mode):
         return self._run([env.render(mode=mode) for env in self.envs])
@@ -202,7 +213,7 @@ if __name__ == '__main__':
         , policy_kwargs={'features_extractor_class': ByolCNN}
     )
     try:
-        model.load(config['policy_save_path'], map_location=torch.device('cpu'))
+        model.load(config['policy_save_path'])
     except (FileNotFoundError, EOFError) as e:
         logging.warning(e)
     i = 0

@@ -98,31 +98,37 @@ class Crawler(aobject):
         ''')
 
     async def _enable_scroll(self):
-        await self.page.evaluate("""
-            document.querySelector('html').setAttribute('style', 'overflow: visible !important;');
-            document.querySelector('body').setAttribute('style', 'overflow: visible !important;');
-        """, force_expr=True)
+        try:
+            await self.page.evaluate("""
+                document.querySelector('html').setAttribute('style', 'overflow: visible !important;');
+                document.querySelector('body').setAttribute('style', 'overflow: visible !important;');
+            """, force_expr=True)
+        except (pyppeteer.errors.ElementHandleError, pyppeteer.errors.NetworkError):
+            pass
 
     async def _always_open_in_the_same_tab(self):
-        await self.page.evaluate("""
-        window.open = function (open) {
-            return function (url, name, features) {
-                name = "_self";
-                return open.call(window, url, name, features);
-            };
-        }(window.open);
+        try:
+            await self.page.evaluate("""
+            window.open = function (open) {
+                return function (url, name, features) {
+                    name = "_self";
+                    return open.call(window, url, name, features);
+                };
+            }(window.open);
 
-        function changeLinkTarget(event){
-            if(event.target.closest('a')){
-                event.target.closest('a').target = '_self';
+            function changeLinkTarget(event){
+                if(event.target.closest('a')){
+                    event.target.closest('a').target = '_self';
+                }
             }
-        }
-        document.addEventListener('click', changeLinkTarget);
+            document.addEventListener('click', changeLinkTarget);
 
-        document.querySelectorAll('[target="_blank"]')
-            .forEach(x => {x.setAttribute('target', '_self');})
-        """, force_expr=True)
-        await self._load_js('static/same_tab.js', id='__tracker_same_tab_script')
+            document.querySelectorAll('[target="_blank"]')
+                .forEach(x => {x.setAttribute('target', '_self');})
+            """, force_expr=True)
+            await self._load_js('static/same_tab.js', id='__tracker_same_tab_script')
+        except (pyppeteer.errors.ElementHandleError, pyppeteer.errors.NetworkError):
+            pass
 
     async def _enable_segmentation(self):
         await self._load_js('static/seg.js', id='__tracker_seg_script')

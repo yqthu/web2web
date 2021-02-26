@@ -1,6 +1,18 @@
 id: 1
-# start_url: https://m.hao123.com/
-start_url: https://h5.mse.360.cn/newnavi.html#/home
+start_urls: [
+  https://www.zhihu.com/question/20384380,
+  https://m.hao123.com/,
+  http://dh.123.sogou.com/,
+  http://m.2345.com/,
+  http://m.02516.com/,
+  https://m.baidu.com/,
+  https://h5.mse.360.cn/newnavi.html,
+  https://news.sina.cn/,
+  https://m.sohu.com/limit/,
+  https://m.xinwentoutiao.net/,
+  https://news.ifeng.com/,
+  https://m.toutiao.com/
+]
 max_steps: 10
 timeout: 5000
 reset_browser_timeout: 30000
@@ -10,5 +22,5 @@ action:
   x_grain: 72
   y_grain: 128
 policy_save_path: policy
-ppo_n_steps: 96
-log_path: /tmp/with-byol-full-traceback-2.log
+ppo_n_steps: 48
+log_path: /tmp/with-byol-full-traceback-8.log
